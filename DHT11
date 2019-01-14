@@ -1,0 +1,67 @@
+/**************************************说明：配置相关文件和文件夹以及树莓派引脚设置************************************************/
+const mqtt = require('/home/pi/aliyun-iot-demo-nodejs/node_modules/aliyun-iot-mqtt');
+ var sensorLib = require('/usr/local/lib/node_modules/node-dht-sensor');
+const Gpio = require('/home/pi/node_modules/rpio2/lib/index.js').Gpio;
+var led = new Gpio(7);  //创建 Pin7 引脚
+led.open(Gpio.OUTPUT, Gpio.LOW); //设置为 OUTPUT、默认低电平
+
+var sensorType = 11; // 11 for DHT11, 22 for DHT22 and AM2302
+var sensorPin  = 16;  // The GPIO pin number for sensor signal
+if (!sensorLib.initialize(sensorType, sensorPin)) {
+    console.warn('Failed to initialize sensor');
+    process.exit(1);
+}
+
+/**************************************说明 ：使用一型一密认证方式，初始化过程中需设置一型一密动态注册接口。从阿里云上获取三元组************************************************/
+//树莓派三元组
+const options = {
+    productKey: "a12F0j8PYhD",
+    deviceName: "yfth",
+    deviceSecret: "TC39z10E5V43j6XIG7XXug3PXNCovJQd",
+    regionId: "cn-shanghai"
+};
+/**************************************与MQTT服务器建立连接 ************************************************/
+//建立连接
+const client = mqtt.getAliyunIotMqttClient(options);
+
+client.on('connect', function() {
+            console.log('MQTT服务器链接成功!')            
+        });
+ 
+client.on('error', function(err) {
+            console.log(err)
+        });
+   
+  client.on('message', function(topic, message) {
+        // message is Buffer
+       //console.log('收到:' + topic + '消息:' + message.toString())
+      //{"method":"thing.service.property.set","id":"180434622","params":{"LED":1},"version":"1.0.0"}
+     var   json = JSON.parse(message.toString());
+     console.log("LED="+ json.params.LED.toString());
+     led.write( json.params.LED);      
+    });
+
+/**************************************获取温湿度数据************************************************/
+const topic = `/sys/${options.productKey}/${options.deviceName}/thing/event/property/post`;
+setInterval(function() {
+    //发布数据到topic
+    client.publish(topic, getPostData());
+}, 5 * 1000);
+
+
+function getPostData(){   
+    var readout = sensorLib.read();
+    const payloadJson = {
+        id: Date.now(),
+        params: {
+            temperature: readout.temperature.toFixed(1),
+            humidity: readout.humidity.toFixed(1)
+        },
+        method: "thing.event.property.post"
+    }
+
+    console.log("===postData topic=" + topic)
+    console.log(payloadJson)
+
+    return JSON.stringify(payloadJson);
+}
